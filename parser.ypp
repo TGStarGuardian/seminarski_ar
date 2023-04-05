@@ -1,0 +1,221 @@
+
+%{
+#include <stdio.h>
+
+int yylex();
+
+#define yyerror printf
+
+#include "fol.hpp"
+
+%}
+
+%token<str_attr> SYMBOL;
+%token<str_attr> VARIABLE;
+%token TRUE;
+%token FALSE;
+%token NOT;
+%token AND;
+%token OR;
+%token IMP;
+%token IFF;
+%token EQ;
+%token NEQ;
+%token FORALL;
+%token EXISTS;
+
+%type<formula_attr> formula
+%type<formula_attr> quant_formula
+%type<formula_attr> iff_formula
+%type<formula_attr> imp_formula
+%type<formula_attr> or_formula
+%type<formula_attr> and_formula
+%type<formula_attr> unary_formula
+%type<formula_attr> sub_formula
+%type<formula_attr> atomic_formula
+%type<formula_attr> atom
+%type<term_attr> term
+%type<term_seq_attr> term_seq
+
+%union {
+  string * str_attr;
+  Formula * formula_attr;
+  Term * term_attr;
+  vector<Term> * term_seq_attr;
+}
+
+%%
+
+input  : formula ';'
+       {
+         parsed_formula = *$1;
+	 delete $1;
+	 return 0;
+       }
+       ;
+
+formula : quant_formula
+	{
+	 $$ = $1;
+	}
+	;
+
+quant_formula : FORALL  VARIABLE  '.' quant_formula
+	      {
+	       $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeForall(*$2, *$4));	       
+	       delete $2;
+	       delete $4;
+	      }
+	      | EXISTS  VARIABLE  '.' quant_formula
+	      {
+	       $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeExists(*$2, *$4));
+	       delete $2;
+	       delete $4;
+	      }
+	      | iff_formula
+	      {
+	        $$ = $1;
+	      }
+
+
+iff_formula : imp_formula IFF iff_formula
+  	{
+	  $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeIff(*$1, *$3));
+	  delete $1;
+	  delete $3;
+	}
+	| imp_formula
+	{
+	  $$ = $1;
+	}
+	;
+
+imp_formula : or_formula IMP imp_formula
+	    {
+	      $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeImp(*$1, *$3));
+	      delete $1;
+	      delete $3;
+	    }
+	    | or_formula
+	    {
+	      $$ = $1;
+	    }
+	    ;
+
+or_formula : or_formula OR and_formula
+	   {
+	     $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeOr(*$1, *$3));
+	     delete $1;
+	     delete $3;
+	   }
+	   | and_formula
+	   {
+	     $$ = $1;
+	   }
+	   ;
+
+and_formula : and_formula AND unary_formula
+	    {
+	      $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeAnd(*$1, *$3));
+	      delete $1;
+	      delete $3;
+	    }
+	    | unary_formula
+	    {
+	      $$ = $1;
+	    }
+	    ;
+
+unary_formula : NOT unary_formula
+	      {
+	       $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeNot(*$2));
+	       delete $2;
+	      }
+	      | sub_formula
+	      {
+	       $$ = $1;
+	      }
+	      ;
+
+sub_formula : atomic_formula
+	    {
+	      $$ = $1;
+	    } 
+	    | '(' formula ')'
+	    {
+	      $$ = $2;
+	    }
+	    ;
+
+atomic_formula : atom
+	       {
+	         $$ = $1;
+	       }
+	       | TRUE
+	       {
+	         $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeTrue());
+	       }
+	       | FALSE
+	       {
+	         $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeFalse());
+	       }
+	       ;
+
+atom : SYMBOL
+     {
+       $$ = new Formula(FormulaDatabase::getFormulaDatabase().makeAtom(*$1));
+       delete $1;
+     }
+     | SYMBOL '(' term_seq ')'
+     {
+       $$ = new Formula(FormulaDatabase::getFormulaDatabase().makeAtom(*$1, *$3));
+       delete $1;
+       delete $3;
+     }
+     | term EQ term 
+     {
+       $$ = new Formula(FormulaDatabase::getFormulaDatabase().makeEquality(*$1, *$3));
+       delete $1;
+       delete $3;
+     }
+     | term NEQ term
+     {
+       $$ = new  Formula(FormulaDatabase::getFormulaDatabase().makeDisequality(*$1, *$3));
+       delete $1;
+       delete $3;
+     }
+     ;
+
+term_seq : term_seq ',' term
+	 {
+	   $$ = $1;
+	   $$->push_back(*$3);
+	   delete $3;
+	 }
+	 | term
+	 {
+	   $$ = new vector<Term>();
+	   $$->push_back(*$1);
+	   delete $1;
+	 }
+	 ;
+
+term : VARIABLE
+     {
+       $$ = new Term(TermDatabase::getTermDatabase().makeVariableTerm(*$1));
+       delete $1;
+     }
+     | SYMBOL
+     {
+       $$ = new Term(TermDatabase::getTermDatabase().makeFunctionTerm(*$1));
+       delete $1;
+     }
+     | SYMBOL '(' term_seq ')'
+     {
+       $$ = new Term(TermDatabase::getTermDatabase().makeFunctionTerm(*$1, *$3));
+       delete $1;
+       delete $3;
+     }
+     ;
+
+%%
