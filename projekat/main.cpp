@@ -17,20 +17,24 @@ typedef struct Literal {
 	bool isNeg;
 } Literal;
 
+/*
 typedef struct Quant {
-	std::string var;
+	Term var;
 	bool type;
 } Quant;
+*/
+
+using Quant = Term;
 
 inline
 std::string print_neg(bool x) {
 	return (x)? "~" : "";
 }
-
+/*
 inline std::string print_quant(bool x) {
 	return (x)? "!" : "?"; 
 }
-
+*/
 using Clause = std::vector<Literal>;
 
 unsigned int i = 0;
@@ -85,7 +89,7 @@ void set_new_vars_unary(std::vector<Term> &vars, std::list<Quant>& quants, atomi
 			Term s = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
 			t = rename_var_in_atom(t, var, s);
 			var = s;
-			quants.push_back(Quant{var->getVariable(), true});
+			quants.push_back(var);
 		}
 }
 
@@ -95,14 +99,122 @@ void set_new_vars_binary(std::vector<Term> &vars, std::list<Quant>& quants, atom
 			t1 = rename_var_in_atom(t1, var, s);
 			t2 = rename_var_in_atom(t2, var, s);
 			var = s;
-			quants.push_back(Quant{var->getVariable(), true});
+			quants.push_back(var);
 		}
 }
 
 Formula tseitin_helper(const Formula&, std::vector<Clause>&, std::list<Quant>&);
 
-void tseitin(const Formula& f, std::vector<Clause>& CNF, std::list<Quant>& quants) {
-	Formula t = tseitin_helper(f, CNF, quants);
+Formula eliminate_consts(const Formula& f) {
+	BaseFormula::Type type = f->getType();
+	
+	Formula f1, f2;
+	
+	switch(type) {
+		case BaseFormula::T_TRUE:
+		case BaseFormula::T_FALSE:
+		case BaseFormula::T_ATOM:
+			return f;
+		case BaseFormula::T_NOT:
+			f1 = eliminate_consts(f->getOperand());
+			if(f1->getType() == BaseFormula::T_TRUE) {
+				return FormulaDatabase::getFormulaDatabase().makeFalse();
+			} else if(f1->getType() == BaseFormula::T_FALSE) {
+				return FormulaDatabase::getFormulaDatabase().makeTrue();
+			}
+			return FormulaDatabase::getFormulaDatabase().makeNot(f1);
+		case BaseFormula::T_AND:
+			f1 = eliminate_consts(f->getOperand1());
+			f2 = eliminate_consts(f->getOperand2());
+			std::cout << f1 << " " << f2 << '\n';
+			if(f1->getType() == BaseFormula::T_TRUE) {
+				return f2;	
+			} else if(f1->getType() == BaseFormula::T_FALSE) {
+				return FormulaDatabase::getFormulaDatabase().makeFalse();
+			}
+			
+			if(f2->getType() == BaseFormula::T_TRUE) {
+				return f1;	
+			} else if(f2->getType() == BaseFormula::T_FALSE) {
+				return FormulaDatabase::getFormulaDatabase().makeFalse();
+			}
+			return FormulaDatabase::getFormulaDatabase().makeAnd(f1, f2);
+		case BaseFormula::T_OR:
+			f1 = eliminate_consts(f->getOperand1());
+			f2 = eliminate_consts(f->getOperand2());
+			if(f1->getType() == BaseFormula::T_FALSE) {
+				return f2;	
+			} else if(f1->getType() == BaseFormula::T_TRUE) {
+				return FormulaDatabase::getFormulaDatabase().makeTrue();
+			}
+			
+			if(f2->getType() == BaseFormula::T_FALSE) {
+				return f1;	
+			} else if(f2->getType() == BaseFormula::T_TRUE) {
+				return FormulaDatabase::getFormulaDatabase().makeTrue();
+			}
+			return FormulaDatabase::getFormulaDatabase().makeOr(f1, f2);
+		case BaseFormula::T_IMP:
+			f1 = eliminate_consts(f->getOperand1());
+			f2 = eliminate_consts(f->getOperand2());
+			if(f1->getType() == BaseFormula::T_TRUE) {
+				return eliminate_consts(FormulaDatabase::getFormulaDatabase().makeNot(f2));	
+			} else if(f1->getType() == BaseFormula::T_FALSE) {
+				return FormulaDatabase::getFormulaDatabase().makeTrue();
+			}
+			
+			if(f2->getType() == BaseFormula::T_TRUE) {
+				return FormulaDatabase::getFormulaDatabase().makeTrue();	
+			} else if(f2->getType() == BaseFormula::T_FALSE) {
+				return eliminate_consts(FormulaDatabase::getFormulaDatabase().makeNot(f1));
+			}
+			return FormulaDatabase::getFormulaDatabase().makeImp(f1, f2);
+		case BaseFormula::T_IFF:
+			f1 = eliminate_consts(f->getOperand1());
+			f2 = eliminate_consts(f->getOperand2());
+			if(f1->getType() == BaseFormula::T_TRUE) {
+				return f2;	
+			} else if(f1->getType() == BaseFormula::T_FALSE) {
+				return eliminate_consts(FormulaDatabase::getFormulaDatabase().makeNot(f2));
+			}
+			
+			if(f2->getType() == BaseFormula::T_TRUE) {
+				return f1;	
+			} else if(f2->getType() == BaseFormula::T_FALSE) {
+				return eliminate_consts(FormulaDatabase::getFormulaDatabase().makeNot(f1));
+			}
+			
+			return FormulaDatabase::getFormulaDatabase().makeIff(f1, f2);
+			
+		case BaseFormula::T_FORALL:
+			f1 = eliminate_consts(f->getOperand());
+			if(f1->getType() == BaseFormula::T_TRUE) {
+				return f1;
+			} else if(f1->getType() == BaseFormula::T_FALSE) {
+				return f1;
+			}
+			
+			return FormulaDatabase::getFormulaDatabase().makeForall(f->getVariable(), f1);
+		case BaseFormula::T_EXISTS:
+			f1 = eliminate_consts(f->getOperand());
+			if(f1->getType() == BaseFormula::T_TRUE) {
+				return f1;
+			} else if(f1->getType() == BaseFormula::T_FALSE) {
+				return f1;
+			}
+			return FormulaDatabase::getFormulaDatabase().makeExists(f->getVariable(), f1);
+		
+	}
+	return f;
+}
+
+void cnf_transform(const Formula& f, std::vector<Clause>& CNF, std::list<Quant>& quants) {
+	Formula t = eliminate_consts(f);
+	if(t->getType() == BaseFormula::T_TRUE || t->getType() == BaseFormula::T_FALSE) {
+		CNF.push_back({Literal{t, false}});
+		return;
+	}
+	t = tseitin_helper(t, CNF, quants);
 	
 	// ono sto je ostalo od formule treba staviti u KNF
 	CNF.push_back({Literal{t, false}});
@@ -117,14 +229,14 @@ Term set_new_vars_quant(std::vector<Term> &vars, std::list<Quant>& quants, atomi
 			if(var == v && !q) {
 				std::vector<Term> new_terms;
 				for(auto Q : quants) {
-					new_terms.push_back(TermDatabase::getTermDatabase().makeVariableTerm(Q.var));
+					new_terms.push_back(Q);
 				}
 				s = TermDatabase::getTermDatabase().makeFunctionTerm(((quants.empty())? "C" : "F") + to_string(++k), new_terms);
 				x = s;
 				
 			} else {
 				s = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
-				quants.push_back(Quant{s->getVariable(), true});
+				quants.push_back(s);
 			}
 			t = rename_var_in_atom(t, var, s);
 			var = s;
@@ -135,7 +247,7 @@ Term set_new_vars_quant(std::vector<Term> &vars, std::list<Quant>& quants, atomi
 
 Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Quant>& quants) {
 	BaseFormula::Type type = f->getType();
-	std::cout << type << '\n';
+	//std::cout << type << '\n';
 	Formula a;
 	Formula ret;
 	atomic_pointer t, t1, t2;
@@ -145,10 +257,8 @@ Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Qua
 	std::set<Term> s;
 	Term v;
 	switch(type) {
-		case BaseFormula::T_TRUE:
-		case BaseFormula::T_FALSE:
 		case BaseFormula::T_ATOM:
-			// ne radimo nista kad je atom ili const u pitanju
+			// ne radimo nista kad je atom u pitanju
 			return f;
 		case BaseFormula::T_NOT:
 			// ulazimo u potformule i radimo transformaciju
@@ -302,11 +412,11 @@ int main() {
   
   std::vector<Clause> cnf;
   std::list<Quant> quants;
-  tseitin(parsed_formula, cnf, quants);
+  cnf_transform(parsed_formula, cnf, quants);
   
   std::cout << "KNF je:\n";
   for(Quant& q : quants) {
-  	std::cout << print_quant(q.type) << q.var << " ";
+  	std::cout << "!" << q->getVariable() << " ";
   }
   
   std::cout << '\n';
