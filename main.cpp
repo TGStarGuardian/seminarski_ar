@@ -35,6 +35,7 @@ using Clause = std::vector<Literal>;
 
 unsigned int i = 0;
 long unsigned int j = 0;
+long unsigned int k = 0;
 
 void get_vars_from_term(std::set<Term>& vars, Term& term) {
 	BaseTerm::Type type = term->getType();
@@ -112,11 +113,17 @@ void tseitin(const Formula& f, std::vector<Clause>& CNF, std::list<Quant>& quant
 Term set_new_vars_quant(std::vector<Term> &vars, std::list<Quant>& quants, atomic_pointer &t, Term &v, bool q) {
 		Term x = v;
 		for(Term& var : vars) {
-			Term s = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
-			if(var == v) {
+			Term s;
+			if(var == v && !q) {
+				std::vector<Term> new_terms;
+				for(auto Q : quants) {
+					new_terms.push_back(TermDatabase::getTermDatabase().makeVariableTerm(Q.var));
+				}
+				s = TermDatabase::getTermDatabase().makeFunctionTerm("F" + to_string(++k), new_terms);
 				x = s;
-				quants.push_back(Quant{s->getVariable(), q});
+				
 			} else {
+				s = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
 				quants.push_back(Quant{s->getVariable(), true});
 			}
 			t = rename_var_in_atom(t, var, s);
