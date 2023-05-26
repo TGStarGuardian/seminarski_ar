@@ -248,14 +248,14 @@ Term set_new_vars_quant(std::vector<Term> &vars, std::list<Quant>& quants, atomi
 Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Quant>& quants) {
 	BaseFormula::Type type = f->getType();
 	//std::cout << type << '\n';
-	Formula a;
+	Formula a, b;
 	Formula ret;
 	atomic_pointer t, t1, t2;
 	std::vector<Term> terms;
 	std::vector<Term> vars;
-	std::vector<Term> old_vars;
+	std::vector<Term> old_vars, old_vars1;
 	std::set<Term> s;
-	Term v;
+	Term v, v1;
 	switch(type) {
 		case BaseFormula::T_ATOM:
 			// ne radimo nista kad je atom u pitanju
@@ -370,6 +370,7 @@ Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Qua
 			get_vars(s, terms);
 			vars.insert(vars.end(), s.begin(), s.end());
 			old_vars.insert(old_vars.end(), s.begin(), s.end());
+			old_vars1.insert(old_vars1.end(), s.begin(), s.end());
 			std::erase_if(vars, [v](const Term& x){return v == x;});
 			ret = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(++i), vars);
 			//std::erase_if(vars, [v](const Term& x){return v == x;});
@@ -377,10 +378,14 @@ Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Qua
 			v = set_new_vars_quant(old_vars, quants, t, v, true);
 			std::erase_if(old_vars, [v](const Term& x){return v == x;});
 			a = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars);
+			v1 = set_new_vars_quant(old_vars1, quants, t, v, false);
+			std::erase_if(old_vars1, [v](const Term& x){return v == x;});
+			b = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars1);
 			// p(terms) <=> !X.F(x, terms)
-			// !X. (~p | F) & (p | ~F)
+			// (~p | !X.F) & (p | ~!X.F)
+			// !X.(~p | F) & ?X(p | ~F)
 			CNF.push_back({Literal{a, true}, Literal{t, false}});
-			CNF.push_back({Literal{a, false}, Literal{t, true}});
+			CNF.push_back({Literal{b, false}, Literal{t, true}});
 			return ret;
 		case BaseFormula::T_EXISTS:
 			t = std::dynamic_pointer_cast<const Atom>(tseitin_helper(f->getOperand(), CNF, quants));
@@ -389,16 +394,20 @@ Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Qua
 			get_vars(s, terms);
 			vars.insert(vars.end(), s.begin(), s.end());
 			old_vars.insert(old_vars.end(), s.begin(), s.end());
+			old_vars1.insert(old_vars1.end(), s.begin(), s.end());
 			std::erase_if(vars, [v](const Term& x){return v == x;});
 			ret = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(++i), vars);
 			//std::erase_if(vars, [v](const Term& x){return v == x;});
 			v = set_new_vars_quant(old_vars, quants, t, v, false);
 			std::erase_if(old_vars, [v](const Term& x){return v == x;});
 			a = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars);
-			// p(terms) <=> !X.F(x, terms)
-			// !X. (~p | F) & (p | ~F)
+			v1 = set_new_vars_quant(old_vars1, quants, t, v, true);
+			std::erase_if(old_vars1, [v](const Term& x){return v == x;});
+			b = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars1);
+			// p(terms) <=> ?X.F(x, terms)
+			// ?X.(~p | F) & !X(p | ~F)
 			CNF.push_back({Literal{a, true}, Literal{t, false}});
-			CNF.push_back({Literal{a, false}, Literal{t, true}});
+			CNF.push_back({Literal{b, false}, Literal{t, true}});
 			return ret;
 	}
 	return f;
