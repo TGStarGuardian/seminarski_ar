@@ -3,6 +3,7 @@
 #include <vector>
 #include <list>
 #include <set>
+#include <tuple>
 
 extern int yyparse();
 
@@ -222,26 +223,77 @@ void cnf_transform(const Formula& f, std::vector<Clause>& CNF, std::list<Quant>&
 	return;
 }
 
-Term set_new_vars_quant(std::vector<Term> &vars, std::list<Quant>& quants, atomic_pointer &t, Term &v, bool q) {
-		Term x = v;
-		for(Term& var : vars) {
-			Term s;
-			if(var == v && !q) {
-				std::vector<Term> new_terms;
-				for(auto Q : quants) {
-					new_terms.push_back(Q);
-				}
-				s = TermDatabase::getTermDatabase().makeFunctionTerm(((quants.empty())? "C" : "F") + to_string(++k), new_terms);
-				x = s;
-				
-			} else {
-				s = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
-				quants.push_back(s);
-			}
-			t = rename_var_in_atom(t, var, s);
-			var = s;
+std::tuple<Formula, Formula, atomic_pointer> resolve_quant(atomic_pointer& t, const Formula& f, std::list<Quant>& quants) {
+	// izvlacimo promenljivu po kojoj se kvantifikuje
+	Term v = TermDatabase::getTermDatabase().makeVariableTerm(f->getVariable());
+	// vadimo podtermove od podformule
+	std::vector<Term> terms;
+	std::vector<Term> vars, vars1;
+	terms.insert(terms.end(), t->getOperands().begin(), t->getOperands().end());
+	// vadimo promenljive iz podformule
+	std::set<Term> s;
+	get_vars(s, terms);
+	vars.insert(vars.end(), s.begin(), s.end());
+	vars1 = vars;
+	// flag oznacava da li se u podformuli javlja v
+	bool flag;
+	if(std::erase_if(vars, [v](const Term& x){return v == x;})) {
+		flag = true;
+	}
+	// u ova dva vektora smestamo promenljive koje cemo kasnije da preimenujemo
+	// prvo se u vektorima nalazi sve sto je pod univerzalnim kvantifikatorom
+	// i nije vezano za vezanu promenljivu v
+	std::vector<Term> new_vars, new_vars1;
+	new_vars.insert(new_vars.end(), vars.begin(), vars.end());
+	new_vars1 = new_vars;
+	
+	// kreiramo drugi atom, jer bice kreirana dva nova atoma
+	atomic_pointer t1 = std::dynamic_pointer_cast<const Atom>(FormulaDatabase::getFormulaDatabase().makeAtom(t->getSymbol(), t->getOperands()));
+	
+	// kreiramo ono sto ce biti povratna vrednost za tseitin_helper
+	Formula ret = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(++i), vars);
+	//std::erase_if(vars, [v](const Term& x){return v == x;});
+	// uvodimo novi predikat p sa argumentima terms
+	// v = set_new_vars_quant(old_vars, quants, t, v, true);
+	// v1 = TermDatabase::getTermDatabase().makeVariableTerm(f->getVariable());
+	//v1 = set_new_vars_quant(old_vars1, quants, t1, v1, false);
+	
+	for(auto it = new_vars.begin(), it1 = new_vars1.begin(); it != new_vars.end() && it1 != new_vars1.end(); ++it, ++it1) {
+		// pravimo novu promenljivu
+		Term s = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
+		// Term s1 = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(j));
+		quants.push_back(s);
+		t = rename_var_in_atom(t, *it, s);
+		*it = s;
+		t1 = rename_var_in_atom(t1, *it1, s);
+		*it1 = s;
+	}
+	
+	if(flag) {
+		// sada u t stavljamo egzistencijalni kvantifikator
+		new_vars.push_back(v);
+		new_vars1.push_back(v);
+		std::vector<Term> new_terms;
+		for(auto Q : quants) {
+			new_terms.push_back(Q);
 		}
-		return x;
+		Term s = TermDatabase::getTermDatabase().makeFunctionTerm(((quants.empty())? "c" : "f") + to_string(++k), new_terms);
+		t = rename_var_in_atom(t, *new_vars.rbegin(), s);
+		
+		// a u t1 univerzalni kvantifikator
+		Term s1 = TermDatabase::getTermDatabase().makeVariableTerm("X" + to_string(++j));
+		quants.push_back(s1);
+		t1 = rename_var_in_atom(t1, *new_vars1.rbegin(), s1);
+		new_vars.pop_back();
+		new_vars1.pop_back();
+	}
+	
+	Formula a = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), new_vars);
+	
+	// std::cout << "Formula a je : " << a << '\n';
+	
+	return {ret, a, t1};
+
 }
 
 
@@ -367,80 +419,20 @@ Formula tseitin_helper(const Formula &f, std::vector<Clause> &CNF, std::list<Qua
 			
 		case BaseFormula::T_FORALL:
 			t = std::dynamic_pointer_cast<const Atom>(tseitin_helper(f->getOperand(), CNF, quants));
-			v = TermDatabase::getTermDatabase().makeVariableTerm(f->getVariable());
-			terms.insert(terms.end(), t->getOperands().begin(), t->getOperands().end());
-			get_vars(s, terms);
-			vars.insert(vars.end(), s.begin(), s.end());
-			vars1 = vars;
-			
-			if(std::erase_if(vars, [v](const Term& x){return v == x;})) {
-				old_vars.insert(old_vars.end(), vars.begin(), vars.end());
-				old_vars.push_back(v);
-				old_vars1.insert(old_vars1.end(), vars.begin(), vars.end());
-				old_vars1.push_back(v);
-				flag = true;
-			} else {
-				old_vars.insert(old_vars.end(), vars.begin(), vars.end());
-				old_vars1.insert(old_vars1.end(), vars.begin(), vars.end());
-			}
-			//old_vars1.insert(old_vars1.end(), s.begin(), s.end());
-			//old_vars1.push_back(v);
-			ret = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(++i), vars);
-			//std::erase_if(vars, [v](const Term& x){return v == x;});
-			// uvodimo novi predikat p sa argumentima terms
-			v = set_new_vars_quant(old_vars, quants, t, v, true);
-			t1 = std::dynamic_pointer_cast<const Atom>(FormulaDatabase::getFormulaDatabase().makeAtom(t->getSymbol(), vars1));
-			v1 = TermDatabase::getTermDatabase().makeVariableTerm(f->getVariable());
-			v1 = set_new_vars_quant(old_vars1, quants, t1, v1, false);
-			if(flag) {
-				old_vars.pop_back();
-				old_vars1.pop_back();
-			}
-			a = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars);
-			b = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars1);
+			std::tie(ret, a, t1) = resolve_quant(t, f, quants);
 			// s(terms) <=> !X.F(x, terms)
 			// (~s | !X.F) & (s | ~!X.F)
 			// !X.(~s | F) & ?X(s | ~F)
-			CNF.push_back({Literal{a, true}, Literal{t, false}});
-			CNF.push_back({Literal{b, false}, Literal{t1, true}});
+			CNF.push_back({Literal{a, true}, Literal{t1, false}});
+			CNF.push_back({Literal{a, false}, Literal{t, true}});
 			return ret;
 		case BaseFormula::T_EXISTS:
 			t = std::dynamic_pointer_cast<const Atom>(tseitin_helper(f->getOperand(), CNF, quants));
-			v = TermDatabase::getTermDatabase().makeVariableTerm(f->getVariable());
-			terms.insert(terms.end(), t->getOperands().begin(), t->getOperands().end());
-			get_vars(s, terms);
-			vars.insert(vars.end(), s.begin(), s.end());
-			vars1 = vars;
-			
-			if(std::erase_if(vars, [v](const Term& x){return v == x;})) {
-				old_vars.insert(old_vars.end(), vars.begin(), vars.end());
-				old_vars.push_back(v);
-				old_vars1.insert(old_vars1.end(), vars.begin(), vars.end());
-				old_vars1.push_back(v);
-				flag = true;
-			} else {
-				old_vars.insert(old_vars.end(), vars.begin(), vars.end());
-				old_vars1.insert(old_vars1.end(), vars.begin(), vars.end());
-			}
-			//old_vars1.insert(old_vars1.end(), s.begin(), s.end());
-			//old_vars1.push_back(v);
-			ret = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(++i), vars);
-			//std::erase_if(vars, [v](const Term& x){return v == x;});
-			// uvodimo novi predikat p sa argumentima terms
-			v = set_new_vars_quant(old_vars, quants, t, v, false);
-			t1 = std::dynamic_pointer_cast<const Atom>(FormulaDatabase::getFormulaDatabase().makeAtom(t->getSymbol(), vars1));
-			v1 = TermDatabase::getTermDatabase().makeVariableTerm(f->getVariable());
-			v1 = set_new_vars_quant(old_vars1, quants, t1, v1, true);
-			if(flag) {
-				old_vars.pop_back();
-				old_vars1.pop_back();
-			}
-			a = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars);
-			b = FormulaDatabase::getFormulaDatabase().makeAtom("s" + to_string(i), old_vars1);
+			std::tie(ret, a, t1) = resolve_quant(t, f, quants);
 			// p(terms) <=> ?X.F(x, terms)
 			// ?X.(~p | F) & !X(p | ~F)
 			CNF.push_back({Literal{a, true}, Literal{t, false}});
-			CNF.push_back({Literal{b, false}, Literal{t1, true}});
+			CNF.push_back({Literal{a, false}, Literal{t1, true}});
 			return ret;
 	}
 	return f;
